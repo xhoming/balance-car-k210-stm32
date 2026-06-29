@@ -1,0 +1,46 @@
+#ifndef __APP_K210_CMD_H_
+#define __APP_K210_CMD_H_
+
+#include "AllHeader.h"
+
+#define K210_CMD_HEAD       0xA5
+#define K210_CMD_TAIL       0x5A
+
+#define K210_CMD_LEFT       0x01
+#define K210_CMD_RIGHT      0x02
+#define K210_CMD_SPEED_UP   0x04
+#define K210_CMD_SPEED_DOWN 0x08
+#define K210_CMD_FORWARD    0x10
+#define K210_CMD_BACKWARD   0x20
+#define K210_CMD_RESERVED   0xC0
+
+#define K210_CMD_SPEED_MAX  40
+#define K210_CMD_ACCEL_STEP 1
+#define K210_CMD_DECEL_STEP 8
+#define K210_CMD_TURN_MAX   127
+#define K210_CMD_TURN_STEP  2
+
+#define K210_CTRL_MODE_STOP 0x00
+#define K210_CTRL_MODE_RUN  0x01
+#define K210_CTRL_SPEED_MAX 40
+#define K210_CTRL_TURN_MAX  127
+#define K210_CTRL_TURN_SCALE 1.0f
+#define K210_TARGET_ANGLE_MAX 127.0f
+#define K210_ANGLE_SMOOTH   0.0f
+
+void Deal_K210_Command(uint8_t recv_msg);
+void K210_Command_Task(void);
+void K210_Command_Stop(void);
+uint8_t K210_Command_IsRunning(void);
+uint8_t K210_Command_Last_Flags(void);
+float K210_Command_Current_Speed(void);
+float K210_Command_Current_Turn(void);
+int8_t K210_Command_Current_Dir(void);
+
+void Car_Diff_Turn_Reset(void);
+void Car_Diff_SetZero(void);
+void Car_Diff_Turn(float gyro_turn, int enc_left, int enc_right);
+uint8_t Car_Diff_IsLocked(void);
+float Car_Diff_Heading(void);
+
+#endif

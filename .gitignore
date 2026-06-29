@@ -1,0 +1,21 @@
+# Keil / MDK build outputs
+**/MDK-ARM/*/Listings/
+**/MDK-ARM/*/Objects/
+**/MDK-ARM/*/*.o
+**/MDK-ARM/*/*.d
+**/MDK-ARM/*/*.crf
+**/MDK-ARM/*/*.axf
+**/MDK-ARM/*/*.hex
+**/MDK-ARM/*/*.map
+**/MDK-ARM/*/*.htm
+**/MDK-ARM/*/*.lnp
+**/MDK-ARM/*/*.dep
+**/MDK-ARM/*/*.sct
+**/MDK-ARM/*.lst
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Archives / local backups
+*.zip
