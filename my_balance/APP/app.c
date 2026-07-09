@@ -1,10 +1,8 @@
 #include "app.h"
 
-extern uint8_t k210_new;
 
-extern u8 newLineReceived;//蓝牙接收 Bluetooth reception
+extern u8 newLineReceived;
 extern int int9num;
-extern u8 bulettohflag;
 
 extern char showbuf[32];
 
@@ -17,13 +15,8 @@ void app_user(void)
 		{
 			if (int9num == 3)
 				ProcessCarProtocol();
-			else if (int9num == 9)
-				ProcessPIDFrame();
-			CarHexForward();
 			newLineReceived = 0;
 		}
-		CarUltrasonicCheck();
-		CarTimeoutCheck();
 		CarTelemSend();
 
 		sprintf(showbuf,"%s  hdg:% 6.1f",
@@ -36,8 +29,6 @@ void app_user(void)
 	}
 	else if(mode == ChaseLine_Mode)
 	{
-		CarUltrasonicCheck();
-		CarTimeoutCheck();
 		CarTelemSend();
 
 		sprintf(showbuf,"E:%d S:%d C:%d A:%d",
@@ -46,10 +37,28 @@ void app_user(void)
 		        (int)g_vision_input.confidence,
 		        (int)(HAL_GetTick() - g_vision_input.last_update_ms));
 		OLED_Draw_Line(showbuf, 2, false, false);
-		sprintf(showbuf,"DV:%d DT:%d SP:%d",
+		sprintf(showbuf,"V:%d PWM:%d SP:%d",
 		        (int)g_vision_debug_v,
 		        (int)g_vision_debug_t,
 		        (int)g_vision_input.base_speed);
+		OLED_Draw_Line(showbuf, 3, false, true);
+	}
+	else if(mode == KickBall_Mode)
+	{
+		CarTelemSend();
+
+		sprintf(showbuf,"B:%d E:%d N:%d Y:%d",
+		        (int)g_ball_debug_state,
+		        (int)g_ball_input.error,
+		        (int)g_ball_input.area,
+		        (int)g_ball_input.speed);
+		OLED_Draw_Line(showbuf, 2, false, false);
+		sprintf(showbuf,"V%02d A%03u F%03u R%03u",
+		        (int)g_ball_debug_v,
+		        (unsigned int)(((HAL_GetTick() - g_ball_input.last_update_ms) > 999) ?
+		                       999 : (HAL_GetTick() - g_ball_input.last_update_ms)),
+		        (unsigned int)(g_ball_rx_frames % 1000),
+		        (unsigned int)(g_ball_rx_bytes % 1000));
 		OLED_Draw_Line(showbuf, 3, false, true);
 	}
 }

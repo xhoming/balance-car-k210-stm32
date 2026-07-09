@@ -17,6 +17,9 @@ void show_mode_oled(void)
     case ChaseLine_Mode:
         OLED_Draw_Line("2.ChaseLine Mode", 1, true, true);
         break;
+    case KickBall_Mode:
+        OLED_Draw_Line("3.KickBall Mode", 1, true, true);
+        break;
     default:
         OLED_Draw_Line("Unknown Mode", 1, true, true);
         break;

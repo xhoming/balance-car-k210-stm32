@@ -46,39 +46,11 @@ typedef enum {
     MAX_MOTOR
 } Motor_ID;
 
-typedef enum enCarState_t {
-    enSTOP = 0,
-    enRUN,
-    enBACK,
-    enLEFT,
-    enRIGHT,
-    enTLEFT,
-    enTRIGHT,
-    enAvoid,
-    enFollow,
-    enError
-} enCarState;
-
 typedef enum Car_mode_t {
-    Normal,
-    U_Follow,
-    U_Avoid,
-    Weight_M,
-    K210_QR,
-    K210_Line,
-    K210_Follow,
-    K210_SelfLearn,
-    K210_mnist,
-    Mode_System_Boundary,
-    Bluetooth_Mode,
+    Bluetooth_Mode = 0,
     ChaseLine_Mode,
+    KickBall_Mode,
     Mode_Max
 } Car_Mode;
-
-typedef enum {
-    ModeCat_System = 0,
-    ModeCat_User,
-    ModeCat_Max
-} ModeCategory;
 
 #endif

@@ -341,7 +341,7 @@
               <MiscControls></MiscControls>
               <Define>USE_HAL_DRIVER,STM32F103xE</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F1xx/Include;../Drivers/CMSIS/Include;../BSP;../BSP/Battery;../BSP/Beep;../BSP/Bluetooth;../BSP/delay;../BSP/Enconder;../BSP/IIC_Software;../BSP/INT_Sever;../BSP/k210;../BSP/Key;../BSP/LED;../BSP/Motor;../BSP/MPU6050;../BSP/MPU6050/DMP;../BSP/OLED;../BSP/Timer;../BSP/Ultrasonic;../BSP/Usart1;../APP;../APP/APPK210;../APP/filter;../APP/KF;../APP/mode;../APP/OLED_Show;../APP/PID</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F1xx/Include;../Drivers/CMSIS/Include;../BSP;../BSP/Battery;../BSP/Beep;../BSP/Bluetooth;../BSP/delay;../BSP/Enconder;../BSP/IIC_Software;../BSP/INT_Sever;../BSP/k210;../BSP/Key;../BSP/LED;../BSP/Motor;../BSP/MPU6050;../BSP/MPU6050/DMP;../BSP/OLED;../BSP/Timer;../BSP/Usart1;../APP;../APP/filter;../APP/KF;../APP/mode;../APP/OLED_Show;../APP/PID</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -631,11 +631,6 @@
               <FilePath>../BSP/Timer/bsp_timer.c</FilePath>
             </File>
             <File>
-              <FileName>bsp_ultrasonic.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../BSP/Ultrasonic/bsp_ultrasonic.c</FilePath>
-            </File>
-            <File>
               <FileName>bsp_usart.c</FileName>
               <FileType>1</FileType>
               <FilePath>../BSP/Usart1/bsp_usart.c</FilePath>
@@ -669,6 +664,11 @@
               <FileName>app_vision_turn.c</FileName>
               <FileType>1</FileType>
               <FilePath>../APP/app_vision_turn.c</FilePath>
+            </File>
+            <File>
+              <FileName>app_ball_kick.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../APP/app_ball_kick.c</FilePath>
             </File>
             <File>
               <FileName>oled_show.c</FileName>
@@ -714,31 +714,6 @@
               <FileName>pid_control.c</FileName>
               <FileType>1</FileType>
               <FilePath>../APP/PID/pid_control.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>K210</GroupName>
-          <Files>
-            <File>
-              <FileName>app_follow.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../APP/APPK210/app_follow.c</FilePath>
-            </File>
-            <File>
-              <FileName>app_k210.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../APP/APPK210/app_k210.c</FilePath>
-            </File>
-            <File>
-              <FileName>app_k210_ai.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../APP/APPK210/app_k210_ai.c</FilePath>
-            </File>
-            <File>
-              <FileName>app_line.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../APP/APPK210/app_line.c</FilePath>
             </File>
           </Files>
         </Group>

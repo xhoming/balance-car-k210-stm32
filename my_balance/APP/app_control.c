@@ -1,59 +1,92 @@
 #include "app_control.h"
 
 
-static u16 intstop_time =0 ;
 float battery = 12;//初始状态处于满�?12v The initial state is fully charged 12v
 
-
-//外部中断做延�?至少10ms的延�?此方法比delay准确
-//External interrupt delay at least 10ms This method is more accurate than delay
-void delay_time_int(u16 time)
+static int Motion_AbsInt(int value)
 {
-	intstop_time = time*2; //�?5就是最终时�?//*5 is the final time
-//	while(intstop_time);
+    return (value < 0) ? -value : value;
 }
 
-
-void set_time_int(u16 time)
+static void LimitMotionNoReverse(int *velocity_pwm, int *turn_pwm, int severity)
 {
-	intstop_time = time;
-}
+    int velocity;
+    int turn;
+    int turn_abs;
+    int turn_limit;
+    int left_motion;
+    int right_motion;
+    int min_motion;
+    int max_motion;
+    const int motion_limit = 2400;
 
-//返回时间 Return time
-u16 get_time_int(void)
-{
-	return intstop_time;
-}
+    velocity = *velocity_pwm;
+    if (velocity < 0) {
+        velocity = 0;
+    }
 
+    turn = *turn_pwm;
+    severity = Motion_AbsInt(severity);
+
+    if (severity < 18) {
+        turn_limit = velocity * 45 / 100 + 90;
+    } else if (severity < 45) {
+        turn_limit = velocity * 90 / 100 + 180;
+    } else {
+        turn_limit = velocity * 140 / 100 + 260;
+    }
+
+    turn_abs = Motion_AbsInt(turn);
+    if (turn_abs > turn_limit) {
+        turn = (turn > 0) ? turn_limit : -turn_limit;
+    }
+
+    left_motion = velocity + turn;
+    right_motion = velocity - turn;
+
+    if (left_motion < 0 || right_motion < 0) {
+        min_motion = (left_motion < right_motion) ? left_motion : right_motion;
+        left_motion -= min_motion;
+        right_motion -= min_motion;
+    }
+
+    max_motion = (left_motion > right_motion) ? left_motion : right_motion;
+    if (max_motion > motion_limit) {
+        left_motion = left_motion * motion_limit / max_motion;
+        right_motion = right_motion * motion_limit / max_motion;
+    }
+
+    *velocity_pwm = (left_motion + right_motion) / 2;
+    *turn_pwm = (left_motion - right_motion) / 2;
+}
 
 //中断回调函数 Interrupt callback function
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
 	int Encoder_Left,Encoder_Right;             					//左右编码器的脉冲计数 Pulse counting of left and right encoders
-	int Balance_Pwm,Velocity_Pwm,Turn_Pwm;		  					//平衡环PWM变量，速度环PWM变量，转向环PWM�?Balance loop PWM variable, speed loop PWM variable, steering loop PWM variable
+	int Balance_Pwm,Velocity_Pwm,Turn_Pwm;
+	int Turn_Severity;
 
   // 检查是否发生中断事�? Check if any interruption events have occurred
 	if(GPIO_Pin == MPU6050_Int_Pin)
 	{
 
-			if(intstop_time>0)
-			{
-					intstop_time --;
-			}
-
 			if (mode == ChaseLine_Mode)
 			{
-				Move_X = VisionSpeed_Target(g_vision_input.base_speed ? g_vision_input.base_speed : 10.0f);
-				if (Move_X > 0.1f)
-					g_newcarstate = enRUN;
-				else
-					g_newcarstate = enSTOP;
+				Move_X = VisionSpeed_Target(g_vision_input.base_speed);
+				Car_Target_Velocity = Move_X;
+			}
+			else if (mode == KickBall_Mode)
+			{
+				Move_X = BallKick_SpeedTarget();
 				Car_Target_Velocity = Move_X;
 			}
 
 
 
-			Get_Angle(GET_Angle_Way);                     			//更新姿态，5ms一次，更高的采样频率可以改善卡尔曼滤波和互补滤波的效果  //Updating the posture once every 5ms, a higher sampling frequency can improve the effectiveness of Kalman filtering and complementary filtering
+			Get_Angle(GET_Angle_Way);                     			// update attitude
+			if (mode == Bluetooth_Mode)
+				Car_Diff_UpdateHeading(Gyro_Turn);                     			//更新姿态，5ms一次，更高的采样频率可以改善卡尔曼滤波和互补滤波的效果  //Updating the posture once every 5ms, a higher sampling frequency can improve the effectiveness of Kalman filtering and complementary filtering
 			Encoder_Left=Read_Encoder(MOTOR_ID_ML);            					//读取左轮编码器的值，前进为正，后退为负   //Read the value of the left wheel encoder, forward is positive, backward is negative
 			Encoder_Right=-Read_Encoder(MOTOR_ID_MR);           					//读取右轮编码器的值，前进为正，后退为负   //Read the value of the right wheel encoder, forward is positive, backward is negative
 			Get_Velocity_Form_Encoder(Encoder_Left,Encoder_Right); //获取速度 Obtain speed
@@ -67,7 +100,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 			if (mode == ChaseLine_Mode)
 			{
 				Turn_Pwm = (int)VisionTurn_Calc(Gyro_Turn);
-				Move_Z = Turn_Pwm;
+			}
+			else if (mode == KickBall_Mode)
+			{
+				Turn_Pwm = (int)BallKick_TurnCalc(Gyro_Turn);
 			}
 			else
 
@@ -75,6 +111,22 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 				Turn_Pwm=Turn_PD(Gyro_Turn);
 			}
 
+
+			if (mode == ChaseLine_Mode)
+			{
+				Turn_Severity = Motion_AbsInt((int)g_vision_input.error);
+				if (Motion_AbsInt((int)g_vision_input.slope) > Turn_Severity) {
+					Turn_Severity = Motion_AbsInt((int)g_vision_input.slope);
+				}
+				LimitMotionNoReverse(&Velocity_Pwm, &Turn_Pwm, Turn_Severity);
+				Move_Z = Turn_Pwm;
+			}
+			else if (mode == KickBall_Mode)
+			{
+				LimitMotionNoReverse(&Velocity_Pwm, &Turn_Pwm,
+				                     (int)g_ball_input.error);
+				Move_Z = Turn_Pwm;
+			}
 
 			Motor_Left=Balance_Pwm+Velocity_Pwm+Turn_Pwm;       //计算左轮电机最终PWM Calculate the final PWM of the left wheel motor
 			Motor_Right=Balance_Pwm+Velocity_Pwm-Turn_Pwm;      //计算右轮电机最终PWM Calculate the final PWM of the right wheel motor
@@ -90,10 +142,11 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 			// 差速闭�? BT 编码器差 Feedback
 			if (mode == Bluetooth_Mode)
-				Car_Diff_Turn(Gyro_Turn, Encoder_Left, Encoder_Right);
+				Car_Diff_Turn(Gyro_Turn);
 
 			//只有正常模式下检测小车的拿去和放�?姿态检�? Only in normal mode can the detection of the taking and lowering of the car be carried out (posture detection)
-			if(mode == Bluetooth_Mode || mode == ChaseLine_Mode)
+			if(mode == Bluetooth_Mode || mode == ChaseLine_Mode ||
+			   mode == KickBall_Mode)
 			{
 				if(Pick_Up(Acceleration_Z,Angle_Balance,Encoder_Left,Encoder_Right))//检查是否小车被拿起 Check if the car has been picked up
 					Stop_Flag=1;	                           					//如果被拿起就关闭电机 If picked up, turn off the motor

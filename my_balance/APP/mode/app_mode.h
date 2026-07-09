@@ -3,9 +3,6 @@
 
 #include "AllHeader.h"
 
-
-void Mode_select(void);
-void car_mode(int16_t cnt);
 void Set_Mid_Angle(void);
 void Set_angle(void);
 void Set_PID(void);

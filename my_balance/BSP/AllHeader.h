@@ -43,12 +43,9 @@
 #include "app_bluetooth.h"
 
 #include "bsp_usart2.h"
-#include "app_k210.h"
-#include "app_k210_ai.h"
-#include "app_line.h"
-#include "app_follow.h"
 #include "app_user.h"
 #include "app_vision_turn.h"
+#include "app_ball_kick.h"
 
 #include "bsp_oled.h"
 #include "bsp_oled_i2c.h"
@@ -65,7 +62,6 @@
 #include "encoder.h"
 #include "app_motor.h"
 
-#include "bsp_ultrasonic.h"
 
 #include "app_control.h"
 #include "pid_control.h"
@@ -82,11 +78,9 @@ extern int Mid_Angle;
 extern float Move_X, Move_Z;
 extern float battery;
 extern u8 lower_power_flag;
-extern u32 g_distance;
 extern u8 Flag_velocity;
-extern enCarState g_newcarstate;
 extern u8 Stop_Flag;
-extern float Car_Target_Velocity, Car_Turn_Amplitude_speed;
+extern float Car_Target_Velocity;
 extern Car_Mode mode;
 
 #endif

@@ -1,5 +1,4 @@
 #include "bsp.h"
-#include "intsever.h"
 
 void bsp_init(void)
 {
@@ -26,10 +25,8 @@ void bsp_mode_init(void)
 {
     if (mode == Bluetooth_Mode) {
         bluetooth_init();
-        ultrasonic_init();
-    } else if (mode == ChaseLine_Mode) {
+    } else if (mode == ChaseLine_Mode || mode == KickBall_Mode) {
         bluetooth_init();
-        ultrasonic_init();
         USART2_init();
     }
 
