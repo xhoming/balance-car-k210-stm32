@@ -21,89 +21,71 @@ IMG_W = 320
 IMG_H = 240
 IMG_CENTER_X = IMG_W // 2
 
-DEBUG_MODE = True
-DISPLAY_WHILE_RUNNING = True
-DISPLAY_EVERY_N = 2
-
-# Camera is mounted almost parallel to the ground: use layered strip ROIs
-# from near to very far, instead of a single full-screen blob search.
-BLACK_AB_LIMIT = 42
-ROAD_A_MIN = -6
-LOCAL_L_OFFSET = 15
-LOCAL_L_MIN = 20
-LOCAL_L_MAX = 88
-MIN_PIXELS = 60
-MIN_AREA = 60
-MAX_AREA = 60000
-MIN_DENSITY = 0.02
-MIN_ROAD_W = 24
-MAX_ROAD_GAP = 58
-GREEN_PIXELS_THRESHOLD = 90
-GREEN_EDGE_SLOPE = 60
-
-CENTER_DEAD_ZONE = 0
-SLOPE_DEAD_ZONE = 0
-ERROR_GAIN = 0.85
-SLOPE_GAIN = 1.10
-FAR_SLOPE_GAIN = 1.85
-PATH_MAX_JUMP = 185
-SEED_CENTER_WINDOW = 92
-EDGE_GUARD_MARGIN = 68
-EDGE_GUARD_SLOPE = 55
-
-LOST_SEARCH_MS = 800
-LOST_SEARCH_ERROR = 55
-LOST_SEARCH_SLOPE = 80
-LOST_SEARCH_CONF = 55
-BASE_SPEED = 7
-
-CMD_PERIOD_MS = 50
+THRESHOLD_UPDATE_EVERY_N = 4
+CMD_PERIOD_MS = 10
 KEY_DEBOUNCE_MS = 250
 
-NEAR_ROIS = [
-    (12, 176, 296, 24, 0.35),
-    (12, 206, 296, 24, 0.45),
+# 13 strips, 5 px high. Index 0 is nearest/bottom, index 12 is farther/top.
+SCAN_ROIS = [
+    (12, 218, 296, 5, 8),
+    (12, 202, 296, 5, 8),
+    (12, 186, 296, 5, 9),
+    (12, 170, 296, 5, 10),
+    (12, 154, 296, 5, 11),
+    (12, 138, 296, 5, 12),
+    (12, 122, 296, 5, 12),
+    (12, 106, 296, 5, 12),
+    (12, 90, 296, 5, 13),
+    (12, 74, 296, 5, 13),
+    (12, 58, 296, 5, 12),
+    (12, 42, 296, 5, 11),
+    (12, 26, 296, 5, 10),
 ]
-MID_ROIS = [
-    (12, 116, 296, 24, 0.35),
-    (12, 146, 296, 24, 0.45),
-]
-FAR_ROIS = [
-    (12, 56, 296, 24, 0.30),
-    (12, 86, 296, 24, 0.40),
-]
-VERY_FAR_ROIS = [
-    (12, 12, 296, 20, 0.30),
-    (12, 34, 296, 18, 0.40),
-]
-LAYERS = [NEAR_ROIS, MID_ROIS, FAR_ROIS, VERY_FAR_ROIS]
-LAYER_TARGET_WEIGHTS = [0.34, 0.30, 0.24, 0.12]
 
-PARAM_FILE = "/sd/road_sensor_simple_v1.txt"
+BLACK_AB_LIMIT = 42
+LOCAL_L_MIN = 20
+LOCAL_L_MAX = 88
+MIN_PIXELS = 45
+MIN_AREA = 45
+MIN_ROAD_W = 20
+MIN_VALID_BANDS = 3
+PATH_MAX_JUMP = 220
+FIT_NEAR_Y = 194
+FIT_FAR_Y = 42
+LOOKAHEAD_ORDER = (7, 6, 8, 5, 9, 4, 3, 2, 1, 0)
+CONTINUITY_MARGIN_MIN = 32
+CONTINUITY_JUMP_MIN = 42
+ROBUST_RESIDUAL_STRAIGHT = 34
+ROBUST_RESIDUAL_CURVE = 48
+SLOPE_BOOST_START_PX = 18
+SLOPE_BOOST_NUM = 3
+SLOPE_BOOST_DEN = 2
+MIN_RUN_SPEED = 10
+
+PARAM_FILE = "/sd/road_sensor_simple.txt"
 PARAMS = {
-    "LOCAL_L_OFFSET": LOCAL_L_OFFSET,
-    "ROAD_A_MIN": ROAD_A_MIN,
-    "MIN_ROAD_W": MIN_ROAD_W,
-    "MAX_ROAD_GAP": MAX_ROAD_GAP,
-    "ERROR_GAIN": ERROR_GAIN,
-    "SLOPE_GAIN": SLOPE_GAIN,
-    "FAR_SLOPE_GAIN": FAR_SLOPE_GAIN,
-    "BASE_SPEED": BASE_SPEED,
+    "LO": 15,      # local L offset. Bigger means stricter/darker road.
+    "GA": -6,      # road A min. Bigger filters green harder.
+    "GP": 58,      # max gap for merging nearby road pieces.
+    "DZ": 8,       # center dead zone in pixels. Inside it, turn is 0.
+    "EG": 0.78,    # error gain sent to STM32.
+    "SG": 0.90,    # slope gain sent to STM32.
+    "SP": 15,      # fixed run speed sent to STM32.
 }
 
 WHITE = (255, 255, 255)
 GREEN = (0, 255, 0)
 RED = (255, 0, 0)
 YELLOW = (255, 220, 0)
-BLUE = (0, 100, 255)
+BLUE = (0, 110, 255)
 
 
-def clamp(value, low, high):
-    if value < low:
+def clamp(v, low, high):
+    if v < low:
         return low
-    if value > high:
+    if v > high:
         return high
-    return value
+    return v
 
 
 def load_params(params):
@@ -112,20 +94,18 @@ def load_params(params):
             for line in f:
                 if "=" not in line:
                     continue
-                key, value = line.strip().split("=", 1)
-                if key in params:
-                    params[key] = float(value)
+                k, v = line.strip().split("=", 1)
+                if k in params:
+                    params[k] = float(v)
     except Exception:
         pass
 
 
 def save_params(params):
-    text = ""
-    for key in sorted(params.keys()):
-        text += "%s=%s\n" % (key, params[key])
     try:
         with open(PARAM_FILE, "w") as f:
-            f.write(text)
+            for k in sorted(params.keys()):
+                f.write("%s=%s\n" % (k, params[k]))
         return True
     except Exception:
         return False
@@ -167,7 +147,7 @@ class Stm32Link:
             from machine import UART
             fm.register(6, fm.fpioa.UART2_RX)
             fm.register(8, fm.fpioa.UART2_TX)
-            self.serial = UART(UART.UART2, 115200, 8, 0, 0,
+            self.serial = UART(UART.UART2, 460800, 8, 0, 0,
                                timeout=0, read_buf_len=128)
             self.mode = "uart2"
         except Exception:
@@ -178,16 +158,16 @@ class Stm32Link:
                 self.serial = None
                 self.mode = "none"
 
-    def send_vision(self, error, slope, confidence, speed):
+    def send(self, error, slope, confidence, speed):
         error = int(clamp(error, -100, 100))
         slope = int(clamp(slope, -100, 100))
         confidence = int(clamp(confidence, 0, 100))
         speed = int(clamp(speed, 0, 30))
-        err_u = error & 0xFF
+        error_u = error & 0xFF
         slope_u = slope & 0xFF
         speed_u = speed & 0xFF
-        chk = (err_u + slope_u + confidence + speed_u) & 0xFF
-        frame = [HEAD, err_u, slope_u, confidence, speed_u, chk, TAIL]
+        chk = (error_u + slope_u + confidence + speed_u) & 0xFF
+        frame = [HEAD, error_u, slope_u, confidence, speed_u, chk, TAIL]
         try:
             if self.mode == "ybserial":
                 self.serial.send_bytearray(frame)
@@ -212,432 +192,376 @@ def init_camera():
     sensor.skip_frames(time=800)
 
 
-def local_road_threshold(img, roi, params):
-    roi_rect = roi[:4]
+def make_road_threshold(l_max, params):
+    l_max = int(clamp(l_max, LOCAL_L_MIN, LOCAL_L_MAX))
+    a_min = int(clamp(params["GA"], -35, 20))
+    return [(0, l_max, a_min, BLACK_AB_LIMIT, -BLACK_AB_LIMIT, BLACK_AB_LIMIT)]
+
+
+def stats_lmax(img, roi, params):
     try:
-        stats = img.get_statistics(roi=roi_rect)
-        l_max = int(stats.l_max() - params["LOCAL_L_OFFSET"] - 10)
+        stats = img.get_statistics(roi=roi)
+        l_max = int(stats.l_max() - params["LO"] - 10)
     except Exception:
         l_max = 55
-    l_max = int(clamp(l_max, LOCAL_L_MIN, LOCAL_L_MAX))
-    a_min = int(clamp(params["ROAD_A_MIN"], -35, 20))
-    threshold = [(0, l_max, a_min, BLACK_AB_LIMIT,
-                  -BLACK_AB_LIMIT, BLACK_AB_LIMIT)]
-    return threshold, l_max
+    return int(clamp(l_max, LOCAL_L_MIN, LOCAL_L_MAX))
 
 
-def green_edge_bias(img):
-    left_roi = (0, 40, 58, 170)
-    right_roi = (262, 40, 58, 170)
-    green_threshold = [(20, 95, -128, -10, -20, 95)]
+def build_threshold_cache(img, params):
+    low_l = stats_lmax(img, (12, 162, 296, 64), params)
+    mid_l = stats_lmax(img, (12, 88, 296, 70), params)
+    top_l = stats_lmax(img, (12, 22, 296, 54), params)
+    return [
+        make_road_threshold(low_l, params),
+        make_road_threshold(mid_l, params),
+        make_road_threshold(top_l, params),
+    ]
+
+
+def threshold_for_index(cache, index):
+    if index <= 3:
+        return cache[0]
+    if index <= 8:
+        return cache[1]
+    return cache[2]
+
+
+def find_road(img, roi, params, expected_x, threshold):
+    x, y, w, h, _ = roi
     try:
-        left_blobs = img.find_blobs(green_threshold,
-                                    roi=left_roi,
-                                    pixels_threshold=GREEN_PIXELS_THRESHOLD,
-                                    area_threshold=GREEN_PIXELS_THRESHOLD,
-                                    merge=True,
-                                    margin=6)
-        right_blobs = img.find_blobs(green_threshold,
-                                     roi=right_roi,
-                                     pixels_threshold=GREEN_PIXELS_THRESHOLD,
-                                     area_threshold=GREEN_PIXELS_THRESHOLD,
-                                     merge=True,
-                                     margin=6)
+        blobs = img.find_blobs(threshold,
+                               roi=(x, y, w, h),
+                               pixels_threshold=MIN_PIXELS,
+                               area_threshold=MIN_AREA,
+                               merge=True,
+                               margin=8)
     except Exception:
-        return 0, [], []
+        return None, None
 
-    left_pixels = 0
-    right_pixels = 0
-    for blob in left_blobs:
-        left_pixels += blob.pixels()
-    for blob in right_blobs:
-        right_pixels += blob.pixels()
-
-    if left_pixels > right_pixels + GREEN_PIXELS_THRESHOLD:
-        return GREEN_EDGE_SLOPE, left_blobs, right_blobs
-    if right_pixels > left_pixels + GREEN_PIXELS_THRESHOLD:
-        return -GREEN_EDGE_SLOPE, left_blobs, right_blobs
-    return 0, left_blobs, right_blobs
-
-
-def road_span_in_roi(img, roi, params, last_x):
-    x, y, w, h = roi[:4]
-    thresholds, l_max = local_road_threshold(img, roi, params)
-    blobs = img.find_blobs(thresholds,
-                           roi=(x, y, w, h),
-                           pixels_threshold=MIN_PIXELS,
-                           area_threshold=MIN_AREA,
-                           merge=True,
-                           margin=8)
-    valid = []
-    for blob in blobs:
-        if blob.area() < MIN_AREA or blob.area() > MAX_AREA:
-            continue
-        if blob.pixels() < MIN_PIXELS:
-            continue
-        if blob.density() < MIN_DENSITY:
-            continue
-        if blob.w() < params["MIN_ROAD_W"]:
-            continue
-        valid.append(blob)
-
-    if not valid:
-        return None, None, [], l_max
-
-    valid.sort(key=lambda b: b.x())
+    blobs.sort(key=lambda b: b.x())
     groups = []
-    for blob in valid:
-        left = blob.x()
-        right = blob.x() + blob.w()
-        if not groups:
-            groups.append([left, right, blob.pixels(), [blob]])
+    max_gap = int(clamp(params["GP"], 20, 120))
+    for b in blobs:
+        if b.w() < MIN_ROAD_W:
             continue
-        group = groups[-1]
-        if left - group[1] <= params["MAX_ROAD_GAP"]:
-            if right > group[1]:
-                group[1] = right
-            group[2] += blob.pixels()
-            group[3].append(blob)
+        left = b.x()
+        right = b.x() + b.w()
+        pixels = b.pixels()
+        if groups and left - groups[-1][1] <= max_gap:
+            if right > groups[-1][1]:
+                groups[-1][1] = right
+            groups[-1][2] += pixels
         else:
-            groups.append([left, right, blob.pixels(), [blob]])
+            groups.append([left, right, pixels])
 
     best = None
     best_score = -100000
-    for group in groups:
-        left, right, pixels, members = group
-        width = right - left
-        if width < params["MIN_ROAD_W"]:
-            continue
+    for left, right, pixels in groups:
         center = (left + right) // 2
-        if last_x is not None and abs(center - last_x) > PATH_MAX_JUMP:
+        if abs(center - expected_x) > PATH_MAX_JUMP:
             continue
-        score = pixels + width * 5
-        if last_x is not None:
-            score -= abs(center - last_x) * 14
-        else:
-            if abs(center - IMG_CENTER_X) > SEED_CENTER_WINDOW:
-                continue
-            score -= abs(center - IMG_CENTER_X) * 8
+        width = right - left
+        score = pixels + width * 4 - abs(center - expected_x) * 5
         if score > best_score:
             best_score = score
-            best = group
+            best = (left, right)
 
     if best is None:
-        return None, None, valid, l_max
-
-    left, right, pixels, members = best
-    center = int((left + right) // 2)
-    span = (int(left), y, int(right - left), h)
-    return center, span, members, l_max
+        return None, None
+    left, right = best
+    return (left + right) // 2, (int(left), y, int(right - left), h)
 
 
-def detect_layer(img, rois, params, last_x):
-    sum_x = 0
+def fit_center_line(centers):
     sum_w = 0
-    spans = []
-    blobs = []
-    lmax_values = []
+    sum_y = 0
+    sum_x = 0
+    sum_yy = 0
+    sum_yx = 0
 
-    for roi in rois:
-        weight = roi[4]
-        cx, span, members, l_max = road_span_in_roi(img, roi, params,
-                                                    last_x)
-        spans.append(span)
-        lmax_values.append(l_max)
-        for blob in members:
-            blobs.append(blob)
-        if cx is not None:
-            sum_x += cx * weight
-            sum_w += weight
+    for i, cx in enumerate(centers):
+        if cx is None:
+            continue
+        _, y, _, h, weight = SCAN_ROIS[i]
+        cy = y + h // 2
+        sum_w += weight
+        sum_y += cy * weight
+        sum_x += cx * weight
+        sum_yy += cy * cy * weight
+        sum_yx += cy * cx * weight
 
     if sum_w <= 0:
-        return None, spans, blobs, lmax_values
-    return int(sum_x / sum_w), spans, blobs, lmax_values
+        return None, None
+
+    denom = sum_w * sum_yy - sum_y * sum_y
+    if denom == 0:
+        a = 0.0
+    else:
+        a = (sum_w * sum_yx - sum_y * sum_x) / denom
+    b = (sum_x - a * sum_y) / sum_w
+    return a, b
 
 
-def detect_path(img, params, last_path_x):
+def count_valid_centers(centers):
+    count = 0
+    for cx in centers:
+        if cx is not None:
+            count += 1
+    return count
+
+
+def roi_center_y(index):
+    _, y, _, h, _ = SCAN_ROIS[index]
+    return y + h // 2
+
+
+def choose_track_y(centers):
+    for index in LOOKAHEAD_ORDER:
+        if index < len(centers) and centers[index] is not None:
+            return roi_center_y(index)
+    return FIT_NEAR_Y
+
+
+def span_continuous(span, cx, prev_span, prev_cx):
+    if span is None or cx is None:
+        return False
+    if prev_span is None or prev_cx is None:
+        return True
+
+    left = span[0]
+    right = span[0] + span[2]
+    prev_left = prev_span[0]
+    prev_right = prev_span[0] + prev_span[2]
+    width = span[2]
+    prev_width = prev_span[2]
+
+    margin = max(CONTINUITY_MARGIN_MIN, min(width, prev_width) // 3)
+    if right < prev_left - margin:
+        return False
+    if left > prev_right + margin:
+        return False
+
+    jump_limit = max(CONTINUITY_JUMP_MIN,
+                     int(max(width, prev_width) * 0.55))
+    if abs(cx - prev_cx) > jump_limit:
+        return False
+    return True
+
+
+def robust_refit_centers(centers):
+    line_a, line_b = fit_center_line(centers)
+    if line_a is None:
+        return centers, None, None
+
+    near_x = line_a * FIT_NEAR_Y + line_b
+    far_x = line_a * FIT_FAR_Y + line_b
+    residual_limit = ROBUST_RESIDUAL_STRAIGHT
+    if abs(far_x - near_x) > 45:
+        residual_limit = ROBUST_RESIDUAL_CURVE
+
+    refined = []
+    for i, cx in enumerate(centers):
+        if cx is None:
+            refined.append(None)
+            continue
+        _, y, _, h, _ = SCAN_ROIS[i]
+        cy = y + h // 2
+        pred_x = line_a * cy + line_b
+        if abs(cx - pred_x) > residual_limit:
+            refined.append(None)
+        else:
+            refined.append(cx)
+
+    if count_valid_centers(refined) < MIN_VALID_BANDS:
+        return centers, line_a, line_b
+
+    line_a2, line_b2 = fit_center_line(refined)
+    if line_a2 is None:
+        return centers, line_a, line_b
+    return refined, line_a2, line_b2
+
+
+def dynamic_speed(params, error, slope, confidence):
+    base = int(clamp(params["SP"], 0, 30))
+    if base <= 0 or confidence < 15:
+        return 0
+
+    turn = max(abs(error), abs(slope))
+    speed = base - int(turn * 0.16)
+
+    if turn >= 70:
+        speed = min(speed, 8)
+    elif turn >= 45:
+        speed = min(speed, 12)
+    elif turn >= 25:
+        speed = min(speed, 16)
+
+    if confidence < 35:
+        speed = min(speed, 8)
+    elif confidence < 55:
+        speed = min(speed, 12)
+
+    return int(clamp(speed, MIN_RUN_SPEED, base))
+
+
+def detect_path(img, params, last_x, threshold_cache):
+    expected_x = last_x if last_x is not None else IMG_CENTER_X
     centers = []
     spans = []
-    blobs = []
-    green_blobs = []
-    lmax_values = []
-    expected_x = last_path_x
-    green_bias, left_green, right_green = green_edge_bias(img)
-    for blob in left_green:
-        green_blobs.append(blob)
-    for blob in right_green:
-        green_blobs.append(blob)
+    prev_span = None
+    prev_cx = None
 
-    for layer in LAYERS:
-        cx, layer_spans, layer_blobs, layer_lmax = detect_layer(
-            img, layer, params, expected_x)
+    for i, roi in enumerate(SCAN_ROIS):
+        cx, span = find_road(img, roi, params, expected_x,
+                             threshold_for_index(threshold_cache, i))
+        if cx is not None:
+            if span_continuous(span, cx, prev_span, prev_cx):
+                expected_x = cx
+                prev_cx = cx
+                prev_span = span
+            else:
+                cx = None
         centers.append(cx)
-        for span in layer_spans:
-            spans.append(span)
-        for l_max in layer_lmax:
-            lmax_values.append(l_max)
-        for blob in layer_blobs:
-            blobs.append(blob)
-        if cx is not None:
-            expected_x = cx
+        spans.append(span)
 
-    near = centers[0]
-    mid = centers[1]
-    far = centers[2]
-    very_far = centers[3]
-    seen = 0
-    for cx in centers:
-        if cx is not None:
-            seen += 1
-
-    if seen == 0:
+    valid = count_valid_centers(centers)
+    if valid < MIN_VALID_BANDS:
         return {
-            "seen": False,
-            "centers": centers,
-            "spans": spans,
-            "blobs": blobs,
+            "seen": False, "centers": centers, "spans": spans,
             "target_x": None,
-            "error": 0,
-            "slope": 0,
-            "confidence": 0,
-            "lmax": lmax_values,
-            "green_blobs": green_blobs,
-            "green_bias": green_bias,
+            "error": 0, "slope": 0, "confidence": 0, "speed": 0,
+            "roadw": 0, "line": None,
         }
 
-    anchor = None
-    filtered_centers = []
-    for cx in centers:
-        if cx is None:
-            filtered_centers.append(None)
-            continue
-        if anchor is not None and abs(cx - anchor) > PATH_MAX_JUMP:
-            filtered_centers.append(None)
-            continue
-        filtered_centers.append(cx)
-        anchor = cx
-    centers = filtered_centers
-
-    sum_x = 0
-    sum_w = 0
-    for cx, weight in zip(centers, LAYER_TARGET_WEIGHTS):
-        if cx is None:
-            continue
-        sum_x += cx * weight
-        sum_w += weight
-
-    if sum_w <= 0:
+    centers, line_a, line_b = robust_refit_centers(centers)
+    if line_a is None:
         return {
-            "seen": False,
-            "centers": centers,
-            "spans": spans,
-            "blobs": blobs,
+            "seen": False, "centers": centers, "spans": spans,
             "target_x": None,
-            "error": 0,
-            "slope": 0,
-            "confidence": 0,
-            "lmax": lmax_values,
-            "green_blobs": green_blobs,
-            "green_bias": green_bias,
+            "error": 0, "slope": 0, "confidence": 0, "speed": 0,
+            "roadw": 0, "line": None,
         }
 
-    target_x = int(sum_x / sum_w)
-    local_base = centers[0] if centers[0] is not None else centers[1]
-    if local_base is None:
-        local_base = target_x
-
-    mid_hint = 0
-    if centers[0] is not None and centers[1] is not None:
-        mid_hint = centers[1] - centers[0]
-
-    far_hint = 0
-    look = centers[2] if centers[2] is not None else centers[3]
-    if look is not None:
-        far_hint = look - local_base
-
-    slope_px = mid_hint * params["SLOPE_GAIN"] + \
-        far_hint * params["FAR_SLOPE_GAIN"]
-
-    for cx in (centers[2], centers[3]):
+    valid = 0
+    width_sum = 0
+    for i, cx in enumerate(centers):
         if cx is None:
             continue
-        if cx < EDGE_GUARD_MARGIN:
-            slope_px -= EDGE_GUARD_SLOPE
-        elif cx > IMG_W - EDGE_GUARD_MARGIN:
-            slope_px += EDGE_GUARD_SLOPE
+        valid += 1
+        if spans[i] is not None:
+            width_sum += spans[i][2]
 
-    slope_px += green_bias
-
-    confidence = seen * 20
-    if centers[0] is not None:
-        confidence += 15
-    if centers[1] is not None:
-        confidence += 12
-    confidence = int(clamp(confidence, 0, 100))
-
+    track_y = choose_track_y(centers)
+    track_x = line_a * track_y + line_b
+    far_x = line_a * FIT_FAR_Y + line_b
+    target_x = int(clamp(track_x, 0, IMG_W - 1))
+    line = (int(clamp(far_x, 0, IMG_W - 1)), FIT_FAR_Y,
+            int(clamp(track_x, 0, IMG_W - 1)), int(track_y))
     error_px = target_x - IMG_CENTER_X
-    if abs(error_px) <= CENTER_DEAD_ZONE:
+    if abs(error_px) <= int(clamp(params["DZ"], 0, 30)):
         error_px = 0
-    if abs(slope_px) <= SLOPE_DEAD_ZONE:
+    error = int(error_px * 100 / IMG_CENTER_X * params["EG"])
+    error = int(clamp(error, -100, 100))
+
+    slope_px = far_x - track_x
+    if abs(slope_px) > SLOPE_BOOST_START_PX:
+        slope_px = slope_px * SLOPE_BOOST_NUM / SLOPE_BOOST_DEN
+    if abs(slope_px) <= int(clamp(params["DZ"], 0, 30)):
         slope_px = 0
-
-    error_i8 = int(error_px * 100 / IMG_CENTER_X * params["ERROR_GAIN"])
-    slope_i8 = int(slope_px * 100 / IMG_CENTER_X)
+    slope = int(slope_px * 100 / IMG_CENTER_X * params["SG"])
+    slope = int(clamp(slope, -100, 100))
+    confidence = int(clamp(valid * 8, 0, 100))
+    speed = dynamic_speed(params, error, slope, confidence)
 
     return {
-        "seen": True,
-        "centers": centers,
-        "spans": spans,
-        "blobs": blobs,
+        "seen": True, "centers": centers, "spans": spans,
         "target_x": target_x,
-        "error": int(clamp(error_i8, -100, 100)),
-        "slope": int(clamp(slope_i8, -100, 100)),
-        "confidence": confidence,
-        "lmax": lmax_values,
-        "green_blobs": green_blobs,
-        "green_bias": green_bias,
+        "error": error, "slope": slope, "confidence": confidence,
+        "speed": speed,
+        "roadw": int(width_sum / valid) if valid else 0,
+        "line": line,
     }
 
 
-def make_lost_search(last_valid, params, now):
-    if last_valid is None:
-        return None
-    if time.ticks_diff(now, last_valid["time"]) > LOST_SEARCH_MS:
-        return None
-    turn_dir = last_valid["dir"]
-    if turn_dir == 0:
-        return None
-    return {
-        "seen": True,
-        "lost_search": True,
-        "centers": [None, None, None, None],
-        "spans": [None, None, None, None, None, None, None, None],
-        "blobs": [],
-        "target_x": IMG_CENTER_X + LOST_SEARCH_ERROR * turn_dir,
-        "error": LOST_SEARCH_ERROR * turn_dir,
-        "slope": LOST_SEARCH_SLOPE * turn_dir,
-        "confidence": LOST_SEARCH_CONF,
-    }
-
-
-def touch_params(params, save_msg):
+def touch_params(params, msg):
     if not ts:
-        return save_msg
+        return msg
     try:
         status, x, y = ts.read()
     except Exception:
-        return save_msg
+        return msg
     if status != ts.STATUS_PRESS:
-        return save_msg
-    if 0 <= y < 34:
-        if x < 100:
-            params["LOCAL_L_OFFSET"] = clamp(params["LOCAL_L_OFFSET"] - 1,
-                                             5, 35)
-            return "LO-"
-        if x > 220:
-            params["LOCAL_L_OFFSET"] = clamp(params["LOCAL_L_OFFSET"] + 1,
-                                             5, 35)
-            return "LO+"
-    if 40 <= y < 74:
-        if x < 100:
-            params["ROAD_A_MIN"] = clamp(params["ROAD_A_MIN"] - 1, -35, 20)
-            return "GA-"
-        if x > 220:
-            params["ROAD_A_MIN"] = clamp(params["ROAD_A_MIN"] + 1, -35, 20)
-            return "GA+"
-    if 80 <= y < 114:
-        if x < 100:
-            params["MAX_ROAD_GAP"] = clamp(params["MAX_ROAD_GAP"] - 2, 20, 110)
-            return "GP-"
-        if x > 220:
-            params["MAX_ROAD_GAP"] = clamp(params["MAX_ROAD_GAP"] + 2, 20, 110)
-            return "GP+"
-    if 120 <= y < 154:
-        if x < 100:
-            params["ERROR_GAIN"] = clamp(params["ERROR_GAIN"] - 0.05, 0.3, 1.8)
-            return "EG-"
-        if x > 220:
-            params["ERROR_GAIN"] = clamp(params["ERROR_GAIN"] + 0.05, 0.3, 1.8)
-            return "EG+"
-    if 160 <= y < 194:
-        if x < 100:
-            params["SLOPE_GAIN"] = clamp(params["SLOPE_GAIN"] - 0.05, 0.2, 2.0)
-            return "SG-"
-        if x > 220:
-            params["SLOPE_GAIN"] = clamp(params["SLOPE_GAIN"] + 0.05, 0.2, 2.0)
-            return "SG+"
-    if 206 <= y < 240:
-        if x < 100:
-            params["BASE_SPEED"] = clamp(params["BASE_SPEED"] - 1, 0, 30)
-            return "SP-"
-        if x > 220:
-            params["BASE_SPEED"] = clamp(params["BASE_SPEED"] + 1, 0, 30)
-            return "SP+"
-        if 100 <= x <= 220:
-            return "SAVED" if save_params(params) else "FAIL"
-    return save_msg
+        return msg
+
+    rows = [
+        ("LO", 24, 50, 1, 5, 35),
+        ("GA", 52, 78, 1, -35, 20),
+        ("GP", 80, 106, 2, 20, 120),
+        ("DZ", 108, 134, 1, 0, 30),
+        ("EG", 136, 158, 0.05, 0.3, 1.8),
+        ("SG", 160, 182, 0.05, 0.0, 2.0),
+        ("SP", 184, 206, 1, 0, 30),
+    ]
+    for key, y0, y1, step, low, high in rows:
+        if y0 <= y < y1:
+            if x < 96:
+                params[key] = clamp(params[key] - step, low, high)
+                return key + "-"
+            if x > 224:
+                params[key] = clamp(params[key] + step, low, high)
+                return key + "+"
+    if 208 <= y < 235 and 96 <= x <= 224:
+        return "SAVED" if save_params(params) else "FAIL"
+    return msg
 
 
-def draw_debug(img, path, running, fps, params, save_msg, link_mode):
-    colors = [GREEN, BLUE, WHITE, RED]
-    ys = [206, 146, 86, 32]
-    for layer, color in zip(LAYERS, colors):
-        for roi in layer:
-            img.draw_rectangle(roi[:4], color=color, thickness=1)
-    for blob in path["blobs"]:
-        img.draw_rectangle(blob.rect(), color=YELLOW, thickness=1)
-    for blob in path.get("green_blobs", []):
-        img.draw_rectangle(blob.rect(), color=GREEN, thickness=2)
-    for span in path["spans"]:
-        if span is not None:
-            img.draw_rectangle(span, color=YELLOW, thickness=2)
-    for cx, y, color in zip(path["centers"], ys, colors):
-        if cx is not None:
-            img.draw_cross(int(cx), y, color=color, thickness=2)
+def draw_debug(img, path, running, fps, params, msg):
+    if not running:
+        for roi in SCAN_ROIS:
+            img.draw_rectangle(roi[:4], color=BLUE, thickness=1)
+        for span in path["spans"]:
+            if span:
+                img.draw_rectangle(span, color=YELLOW, thickness=1)
 
     img.draw_line(IMG_CENTER_X, 0, IMG_CENTER_X, IMG_H - 1,
                   color=WHITE, thickness=1)
-    if path.get("target_x") is not None:
-        img.draw_line(int(path["target_x"]), 0, int(path["target_x"]),
-                      IMG_H - 1, color=RED, thickness=2)
+    for i, cx in enumerate(path["centers"]):
+        if cx is None:
+            continue
+        _, y, _, h, _ = SCAN_ROIS[i]
+        img.draw_cross(int(cx), y + h // 2, color=YELLOW, thickness=1)
+    if path["line"] is not None:
+        x0, y0, x1, y1 = path["line"]
+        img.draw_line(x0, y0, x1, y1, color=RED, thickness=2)
+        img.draw_cross(x1, y1, color=RED, thickness=2)
 
-    title = "RUN" if running else "STOP"
-    if path.get("lost_search"):
-        title = "SEARCH"
-    lmax = path.get("lmax", [0, 0])
-    l0 = lmax[0] if len(lmax) > 0 else 0
-    l1 = lmax[1] if len(lmax) > 1 else 0
-    img.draw_string(0, 0, "%s fps:%2.1f e:%d s:%d c:%d g:%d" %
-                    (title, fps, path["error"], path["slope"],
-                     path["confidence"], path.get("green_bias", 0)),
+    img.draw_string(0, 0, "%s fps:%2.1f e:%d s:%d c:%d" %
+                    ("RUN" if running else "STOP", fps,
+                     path["error"], path["slope"], path["confidence"]),
                     color=GREEN, scale=1)
-    img.draw_string(0, 12, "uart:%s sp:%d L:%d/%d" %
-                    (link_mode, int(params["BASE_SPEED"]), l0, l1),
+    img.draw_string(0, 12, "sp:%d w:%d" %
+                    (path["speed"], path["roadw"]),
                     color=WHITE, scale=1)
 
-    if not running:
-        rows = [
-            ("LO", "LOCAL_L_OFFSET", 18, "%d"),
-            ("GA", "ROAD_A_MIN", 54, "%d"),
-            ("GP", "MAX_ROAD_GAP", 90, "%d"),
-            ("EG", "ERROR_GAIN", 126, "%1.2f"),
-            ("SG", "SLOPE_GAIN", 162, "%1.2f"),
-            ("SP", "BASE_SPEED", 206, "%d"),
-        ]
-        for name, key, y, fmt in rows:
-            img.draw_rectangle((0, y, 100, 22), color=BLUE, thickness=1)
-            img.draw_string(10, y + 7, name + "-", color=WHITE, scale=1)
-            value = params[key]
-            if fmt == "%d":
-                value = int(value)
-            img.draw_string(116, y + 7, ("%s:" + fmt) % (name, value),
-                            color=WHITE, scale=1)
-            img.draw_rectangle((220, y, 100, 22), color=BLUE, thickness=1)
-            img.draw_string(250, y + 7, name + "+", color=WHITE, scale=1)
-        img.draw_rectangle((110, 206, 100, 34), color=GREEN, thickness=1)
-        img.draw_string(132, 218, "SAVE", color=WHITE, scale=1)
-        if save_msg:
-            img.draw_string(110, 218, save_msg, color=GREEN, scale=1)
+    if running:
+        return
+
+    rows = [("LO", 24), ("GA", 52), ("GP", 80), ("DZ", 108),
+            ("EG", 136), ("SG", 160), ("SP", 184)]
+    for key, y in rows:
+        img.draw_rectangle((0, y, 90, 24), color=BLUE, thickness=1)
+        img.draw_string(10, y + 8, key + "-", color=WHITE, scale=1)
+        if key == "EG" or key == "SG":
+            text = "%s:%1.2f" % (key, params[key])
+        else:
+            text = "%s:%d" % (key, int(params[key]))
+        img.draw_string(112, y + 8, text, color=WHITE, scale=1)
+        img.draw_rectangle((230, y, 90, 24), color=BLUE, thickness=1)
+        img.draw_string(256, y + 8, key + "+", color=WHITE, scale=1)
+    img.draw_rectangle((98, 208, 124, 26), color=GREEN, thickness=1)
+    img.draw_string(138, 216, "SAVE", color=WHITE, scale=1)
+    if msg:
+        img.draw_string(110, 226, msg, color=GREEN, scale=1)
 
 
 def main():
@@ -650,12 +574,11 @@ def main():
 
     running = False
     last_send = time.ticks_ms()
-    display_count = 0
-    save_msg = ""
-    save_msg_until = 0
-    last_path_x = None
-    last_valid_path = None
-    last_turn_dir = 0
+    msg = ""
+    msg_until = 0
+    last_x = None
+    threshold_cache = None
+    threshold_count = 0
 
     while True:
         try:
@@ -666,63 +589,40 @@ def main():
             if key.pressed_event():
                 running = not running
                 if not running:
-                    link.send_vision(0, 0, 0, 0)
+                    link.send(0, 0, 0, 0)
 
             if not running:
-                msg = touch_params(params, save_msg)
-                if msg != save_msg:
-                    save_msg = msg
-                    save_msg_until = now + 900
-            if save_msg and time.ticks_diff(now, save_msg_until) > 0:
-                save_msg = ""
+                new_msg = touch_params(params, msg)
+                if new_msg != msg:
+                    msg = new_msg
+                    msg_until = now + 900
+                    threshold_cache = None
+            if msg and time.ticks_diff(now, msg_until) > 0:
+                msg = ""
 
-            path = detect_path(img, params, last_path_x)
-            if path["seen"] and path["target_x"] is not None:
-                last_path_x = path["target_x"]
-                turn_dir = 0
-                if path["slope"] > 10:
-                    turn_dir = 1
-                elif path["slope"] < -10:
-                    turn_dir = -1
-                elif path["error"] > 16:
-                    turn_dir = 1
-                elif path["error"] < -16:
-                    turn_dir = -1
-                if turn_dir != 0:
-                    last_turn_dir = turn_dir
-                else:
-                    turn_dir = last_turn_dir
-                last_valid_path = {
-                    "time": now,
-                    "dir": turn_dir,
-                }
-            elif running:
-                search = make_lost_search(last_valid_path, params, now)
-                if search is not None:
-                    path = search
+            if threshold_cache is None or threshold_count <= 0:
+                threshold_cache = build_threshold_cache(img, params)
+                threshold_count = THRESHOLD_UPDATE_EVERY_N - 1
+            else:
+                threshold_count -= 1
+
+            path = detect_path(img, params, last_x, threshold_cache)
+            if path["target_x"] is not None:
+                last_x = path["target_x"]
 
             if running and time.ticks_diff(now, last_send) >= CMD_PERIOD_MS:
-                if path["target_x"] is not None:
-                    link.send_vision(path["error"], path["slope"],
-                                     path["confidence"],
-                                     params["BASE_SPEED"])
+                if path["seen"]:
+                    link.send(path["error"], path["slope"],
+                              path["confidence"], path["speed"])
                 else:
-                    link.send_vision(0, 0, 0, 0)
+                    link.send(0, 0, 0, 0)
                 last_send = now
 
-            show_display = DEBUG_MODE and (DISPLAY_WHILE_RUNNING or
-                                           (not running))
-            display_count += 1
-            if not show_display:
-                display_count = 0
-            if show_display and display_count >= DISPLAY_EVERY_N:
-                display_count = 0
-                draw_debug(img, path, running, clock.fps(), params, save_msg,
-                           link.mode)
-                lcd.display(img)
+            draw_debug(img, path, running, clock.fps(), params, msg)
+            lcd.display(img)
         except Exception as err:
             try:
-                link.send_vision(0, 0, 0, 0)
+                link.send(0, 0, 0, 0)
                 img.draw_string(0, 44, "ERR:%s" % err, color=RED, scale=1)
                 lcd.display(img)
             except Exception:

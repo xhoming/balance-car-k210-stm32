@@ -47,18 +47,17 @@ void app_user(void)
 	{
 		CarTelemSend();
 
-		sprintf(showbuf,"B:%d E:%d N:%d Y:%d",
+		sprintf(showbuf,"B%d F%d E%d A%d.%d",
 		        (int)g_ball_debug_state,
+		        (int)g_ball_input.flags,
 		        (int)g_ball_input.error,
-		        (int)g_ball_input.area,
-		        (int)g_ball_input.speed);
+		        (int)(g_ball_input.area_x10 / 10),
+		        (int)(g_ball_input.area_x10 % 10));
 		OLED_Draw_Line(showbuf, 2, false, false);
-		sprintf(showbuf,"V%02d A%03u F%03u R%03u",
+		sprintf(showbuf,"V%d T%d R%02u",
 		        (int)g_ball_debug_v,
-		        (unsigned int)(((HAL_GetTick() - g_ball_input.last_update_ms) > 999) ?
-		                       999 : (HAL_GetTick() - g_ball_input.last_update_ms)),
-		        (unsigned int)(g_ball_rx_frames % 1000),
-		        (unsigned int)(g_ball_rx_bytes % 1000));
+		        (int)g_ball_debug_t,
+		        (unsigned int)g_ball_debug_missed);
 		OLED_Draw_Line(showbuf, 3, false, true);
 	}
 }

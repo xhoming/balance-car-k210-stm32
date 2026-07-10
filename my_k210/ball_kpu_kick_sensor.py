@@ -27,16 +27,11 @@ CMD_PERIOD_MS = 15
 STOP_CMD_PERIOD_MS = 100
 KEY_DEBOUNCE_MS = 250
 LCD_EVERY_N = 2
-TARGET_HOLD_MS = 5000
-SEND_REPEAT = 3
+SEND_REPEAT = 2
+KPU_REFRESH_FRAMES = 5
 
-STATE_SEARCH = 0
-STATE_ALIGN = 1
-STATE_APPROACH = 2
-STATE_CHARGE = 3
-STATE_BRAKE = 4
-
-STATE_NAMES = ("SRCH", "ALGN", "APPR", "KICK", "STOP")
+FLAG_RUNNING = 0x01
+FLAG_VALID = 0x02
 LABELS = ["ball"]
 
 ANCHORS = (
@@ -50,10 +45,16 @@ ANCHORS = (
 YOLO_THRESHOLD = 0.25
 YOLO_NMS = 0.30
 
-CENTER_WINDOW_PX = 28
 ERROR_GAIN = 1.0
-CLOSE_BOX_AREA = 9000
-BOX_H_CLOSE = 100
+TRACK_LOST_FRAMES = 3
+TRACK_ROI_PAD = 14
+TRACK_MAX_GROWTH = 180
+BALL_ASPECT_MIN = 75
+BALL_ASPECT_MAX = 133
+BLUE_SEED_RATIO = 45
+BLUE_A_MARGIN = 16
+BLUE_B_MARGIN = 20
+BLUE_PIXELS_MIN = 35
 
 WHITE = (255, 255, 255)
 GREEN = (0, 255, 0)
@@ -70,8 +71,9 @@ def clamp(v, low, high):
     return v
 
 
-def area_score(w, h):
-    return int(clamp(w * h * 100 / CLOSE_BOX_AREA, 0, 100))
+def screen_area_x10(pixels):
+    return int(clamp((pixels * 1000 + (IMG_W * IMG_H) // 2) /
+                     (IMG_W * IMG_H), 0, 255))
 
 
 class KeyButton:
@@ -121,15 +123,16 @@ class Stm32Link:
                 self.serial = None
                 self.mode = "none"
 
-    def send_once(self, state, error, near, confidence, y_score):
-        state = int(clamp(state, 0, 4))
+    def send_once(self, seq, flags, error, area_x10, confidence):
+        seq = int(seq) & 0xFF
+        flags = int(flags) & 0xFF
         error = int(clamp(error, -100, 100))
-        near = int(clamp(near, 0, 100))
+        area_x10 = int(clamp(area_x10, 0, 255))
         confidence = int(clamp(confidence, 0, 100))
-        y_score = int(clamp(y_score, 0, 100))
         error_u = error & 0xFF
-        chk = (state + error_u + near + confidence + y_score) & 0xFF
-        frame = [HEAD, state, error_u, near, confidence, y_score, chk, TAIL]
+        chk = (seq + flags + error_u + area_x10 + confidence) & 0xFF
+        frame = [HEAD, seq, flags, error_u, area_x10,
+                 confidence, chk, TAIL]
         try:
             if self.mode == "ybserial":
                 self.serial.send_bytearray(frame)
@@ -141,41 +144,150 @@ class Stm32Link:
             pass
         return False
 
-    def send(self, state, error, near, confidence, y_score, repeat=1):
+    def send(self, seq, flags, error, area_x10, confidence, repeat=1):
         ok = False
         for _ in range(repeat):
-            if self.send_once(state, error, near, confidence, y_score):
+            if self.send_once(seq, flags, error, area_x10, confidence):
                 ok = True
         return ok
 
 
-class TargetMemory:
+def clamp_lab(v, low, high):
+    return int(clamp(v, low, high))
+
+
+def clip_roi(x, y, w, h):
+    x = int(clamp(x, 0, IMG_W - 1))
+    y = int(clamp(y, 0, IMG_H - 1))
+    w = int(clamp(w, 1, IMG_W - x))
+    h = int(clamp(h, 1, IMG_H - y))
+    return (x, y, w, h)
+
+
+def intersect_roi(first, second):
+    x1 = max(first[0], second[0])
+    y1 = max(first[1], second[1])
+    x2 = min(first[0] + first[2], second[0] + second[2])
+    y2 = min(first[1] + first[3], second[1] + second[3])
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return (x1, y1, x2 - x1, y2 - y1)
+
+
+class BlueBallTracker:
     def __init__(self):
-        self.target = None
-        self.last_seen_ms = 0
+        self.threshold = None
+        self.last = None
+        self.kpu_roi = None
+        self.lost_frames = 0
+
+    def active(self):
+        return (self.threshold is not None and self.last is not None and
+                self.kpu_roi is not None)
 
     def reset(self):
-        self.target = None
-        self.last_seen_ms = 0
+        self.threshold = None
+        self.last = None
+        self.kpu_roi = None
+        self.lost_frames = 0
 
-    def update(self, target):
-        now = time.ticks_ms()
-        if target is not None:
-            self.target = target
-            self.last_seen_ms = now
-            target["fresh"] = True
-            return target, True, 0
+    def acquire(self, img, seed):
+        seed_w = max(8, int(seed["w"] * BLUE_SEED_RATIO / 100))
+        seed_h = max(8, int(seed["h"] * BLUE_SEED_RATIO / 100))
+        seed_x = seed["cx"] - seed_w // 2
+        seed_y = seed["cy"] - seed_h // 2
+        stats = img.get_statistics(roi=clip_roi(seed_x, seed_y,
+                                                 seed_w, seed_h))
+        a_mean = int(stats.a_mean())
+        b_mean = int(stats.b_mean())
 
-        if self.target is not None:
-            lost_ms = time.ticks_diff(now, self.last_seen_ms)
-            if lost_ms <= TARGET_HOLD_MS:
-                hold_count = int(lost_ms / 100)
-                held = self.target.copy()
-                held["fresh"] = False
-                return held, False, hold_count
+        self.threshold = (0, 100,
+                          clamp_lab(a_mean - BLUE_A_MARGIN, -128, 127),
+                          clamp_lab(a_mean + BLUE_A_MARGIN, -128, 127),
+                          clamp_lab(b_mean - BLUE_B_MARGIN, -128, 127),
+                          clamp_lab(b_mean + BLUE_B_MARGIN, -128, 127))
+        self.kpu_roi = clip_roi(seed["x"], seed["y"],
+                                seed["w"], seed["h"])
+        self.last = seed.copy()
+        self.lost_frames = 0
+        return self.update(img)
 
-        self.reset()
-        return None, False, int(TARGET_HOLD_MS / 100)
+    def refresh_kpu_roi(self, seed):
+        new_roi = clip_roi(seed["x"], seed["y"], seed["w"], seed["h"])
+        tracking_roi = clip_roi(self.last["x"] - TRACK_ROI_PAD,
+                                self.last["y"] - TRACK_ROI_PAD,
+                                self.last["w"] + TRACK_ROI_PAD * 2,
+                                self.last["h"] + TRACK_ROI_PAD * 2)
+        if intersect_roi(tracking_roi, new_roi) is None:
+            self.last = seed.copy()
+        self.kpu_roi = new_roi
+        self.lost_frames = 0
+
+    def needs_kpu_refresh(self):
+        if not self.active():
+            return True
+        width = self.last["w"]
+        height = self.last["h"]
+        return (width * 100 < height * BALL_ASPECT_MIN or
+                width * 100 > height * BALL_ASPECT_MAX or
+                self.lost_frames > 0)
+
+    def update(self, img):
+        if not self.active():
+            return None
+
+        tracking_roi = clip_roi(self.last["x"] - TRACK_ROI_PAD,
+                                self.last["y"] - TRACK_ROI_PAD,
+                                self.last["w"] + TRACK_ROI_PAD * 2,
+                                self.last["h"] + TRACK_ROI_PAD * 2)
+        roi = intersect_roi(tracking_roi, self.kpu_roi)
+        if roi is None:
+            self.reset()
+            return None
+        blobs = img.find_blobs([self.threshold], roi=roi,
+                               pixels_threshold=BLUE_PIXELS_MIN,
+                               area_threshold=BLUE_PIXELS_MIN,
+                               merge=True)
+        best = None
+        best_score = -1000000
+        for blob in blobs:
+            if (blob.w() * 100 > self.last["w"] * TRACK_MAX_GROWTH or
+                    blob.h() * 100 > self.last["h"] * TRACK_MAX_GROWTH):
+                continue
+            distance = abs(blob.cx() - self.last["cx"]) + \
+                       abs(blob.cy() - self.last["cy"])
+            score = blob.pixels() * 2 - distance * 12
+            if score > best_score:
+                best_score = score
+                best = blob
+
+        if best is None:
+            self.lost_frames += 1
+            if self.lost_frames >= TRACK_LOST_FRAMES:
+                self.reset()
+            return None
+
+        pixels = best.pixels()
+        cx = best.cx()
+        cy = best.cy()
+        error_px = cx - IMG_CENTER_X
+        target = {
+            "x": best.x(),
+            "y": best.y(),
+            "w": best.w(),
+            "h": best.h(),
+            "cx": cx,
+            "cy": cy,
+            "pixels": pixels,
+            "area_x10": screen_area_x10(pixels),
+            "confidence": int(clamp(40 + pixels * 60 / 900, 40, 100)),
+            "error_px": error_px,
+            "error": int(clamp(error_px * 100 / IMG_CENTER_X * ERROR_GAIN,
+                                -100, 100)),
+        }
+        self.last = target
+        self.lost_frames = 0
+        return target
 
 
 def init_camera():
@@ -223,12 +335,6 @@ def detection_to_target(det):
     cy = y + h // 2
     error_px = cx - IMG_CENTER_X
     error = int(error_px * 100 / IMG_CENTER_X * ERROR_GAIN)
-    box_area_score = area_score(w, h)
-    h_score = int(clamp(h * 100 / BOX_H_CLOSE, 0, 100))
-    y_score = int(clamp(cy * 100 / (IMG_H - 1), 0, 100))
-    near = box_area_score
-    if h_score > near:
-        near = h_score
     return {
         "x": x,
         "y": y,
@@ -238,9 +344,6 @@ def detection_to_target(det):
         "cy": cy,
         "score": score,
         "confidence": int(clamp(score * 100, 0, 100)),
-        "area": box_area_score,
-        "near": near,
-        "y_score": y_score,
         "error_px": error_px,
         "error": int(clamp(error, -100, 100)),
     }
@@ -256,25 +359,19 @@ def choose_target(detections):
         center_bonus = IMG_CENTER_X - abs(target["cx"] - IMG_CENTER_X)
         if center_bonus < 0:
             center_bonus = 0
-        score = target["score"] * 10000 + target["area"] * 20 + center_bonus
+        score = target["score"] * 10000 + center_bonus
         if score > best_score:
             best_score = score
             best = target
     return best
 
 
-def measure_state(target):
-    if target is None:
-        return STATE_SEARCH
-    if abs(target["error_px"]) > CENTER_WINDOW_PX:
-        return STATE_ALIGN
-    return STATE_APPROACH
-
-
-def draw_debug(img, target, det_count, hold_count, state, running, fps,
+def draw_debug(img, target, det_count, tracker, running, fps,
                link_mode, tx_count):
     img.draw_line(IMG_CENTER_X, 0, IMG_CENTER_X, IMG_H - 1,
                   color=WHITE, thickness=1)
+    if tracker.kpu_roi is not None:
+        img.draw_rectangle(tracker.kpu_roi, color=GRAY, thickness=1)
     if target is not None:
         img.draw_rectangle((target["x"], target["y"],
                             target["w"], target["h"]),
@@ -283,14 +380,15 @@ def draw_debug(img, target, det_count, hold_count, state, running, fps,
         img.draw_line(IMG_CENTER_X, IMG_H - 1,
                       target["cx"], target["cy"],
                       color=RED, thickness=2)
-        info = "%s ball n:%d h:%d e:%d near:%d y:%d c:%d" % (
-            STATE_NAMES[state], det_count, hold_count, target["error"],
-            target["near"], target["y_score"], target["confidence"])
+        area_x10 = target["area_x10"]
+        info = "%s n:%d l:%d e:%d a:%d.%d%% c:%d" % (
+            "BLU" if tracker.active() else "KPU", det_count,
+            tracker.lost_frames, target["error"], area_x10 // 10,
+            area_x10 % 10, target["confidence"])
     else:
-        info = "%s none n:%d h:%d e:0 near:0 y:0 c:0" % (
-            STATE_NAMES[state], det_count, hold_count)
+        info = "KPU n:%d e:0 a:0.0%% c:0" % det_count
 
-    img.draw_string(0, 0, "%s kpu:%2.1f %s" %
+    img.draw_string(0, 0, "%s fps:%2.1f %s" %
                     ("RUN" if running else "STOP", fps, link_mode),
                     color=GREEN if running else YELLOW, scale=1)
     img.draw_string(0, 14, info, color=WHITE, scale=1)
@@ -302,69 +400,90 @@ def main():
     init_camera()
     key = KeyButton()
     link = Stm32Link()
-    memory = TargetMemory()
+    tracker = BlueBallTracker()
     kpu = init_kpu()
     clock = time.clock()
     running = False
     last_send = time.ticks_ms()
     tx_count = 0
     frame_count = 0
+    seq = 0
 
     while True:
         try:
-            gc.collect()
             clock.tick()
             img = sensor.snapshot()
             now = time.ticks_ms()
             frame_count += 1
+            seq = (seq + 1) & 0xFF
+            if frame_count % 30 == 0:
+                gc.collect()
 
             if key.pressed_event():
                 running = not running
-                memory.reset()
+                tracker.reset()
                 if not running:
-                    link.send(STATE_BRAKE, 0, 0, 0, 0, SEND_REPEAT)
+                    link.send(seq, 0, 0, 0, 0, SEND_REPEAT)
 
-            kpu.run_with_output(img)
-            detections = kpu.regionlayer_yolo2()
-            det_count = len(detections) if detections else 0
-            raw_target = choose_target(detections)
-            target, fresh, hold_count = memory.update(raw_target)
-            state = measure_state(target)
+            det_count = 0
+            target = None
+            tracked_this_frame = False
+            refresh_kpu = (tracker.needs_kpu_refresh() or
+                           frame_count % KPU_REFRESH_FRAMES == 0)
+
+            if refresh_kpu:
+                kpu.run_with_output(img)
+                detections = kpu.regionlayer_yolo2()
+                det_count = len(detections) if detections else 0
+                seed = choose_target(detections)
+                if seed is not None:
+                    if tracker.active():
+                        tracker.refresh_kpu_roi(seed)
+                    else:
+                        target = tracker.acquire(img, seed)
+                        tracked_this_frame = True
+
+            if tracker.active() and not tracked_this_frame:
+                target = tracker.update(img)
 
             if target is None:
                 error = 0
-                near = 0
+                area_x10 = 0
                 confidence = 0
-                y_score = 0
             else:
                 error = target["error"]
-                near = target["near"]
+                area_x10 = target["area_x10"]
                 confidence = target["confidence"]
-                y_score = target["y_score"]
+
+            flags = FLAG_RUNNING if running else 0
+            if target is not None:
+                flags |= FLAG_VALID
 
             if running and time.ticks_diff(now, last_send) >= CMD_PERIOD_MS:
-                if link.send(state, error, near, confidence, y_score, SEND_REPEAT):
+                if link.send(seq, flags, error, area_x10,
+                             confidence, SEND_REPEAT):
                     tx_count += 1
                 last_send = now
             elif ((not running) and
                   time.ticks_diff(now, last_send) >= STOP_CMD_PERIOD_MS):
-                if link.send(STATE_BRAKE, 0, 0, 0, 0, SEND_REPEAT):
+                if link.send(seq, flags, error, area_x10,
+                             confidence, SEND_REPEAT):
                     tx_count += 1
                 last_send = now
 
             if frame_count % LCD_EVERY_N == 0:
-                draw_debug(img, target, det_count, hold_count, state, running,
+                draw_debug(img, target, det_count, tracker, running,
                            clock.fps(), link.mode, tx_count)
                 lcd.display(img)
         except Exception as err:
             try:
-                link.send(STATE_BRAKE, 0, 0, 0, 0, SEND_REPEAT)
+                link.send(seq, 0, 0, 0, 0, SEND_REPEAT)
                 img.draw_string(0, 40, "ERR:%s" % err, color=RED, scale=1)
                 lcd.display(img)
             except Exception:
                 pass
             running = False
-            memory.reset()
+            tracker.reset()
 
 
 main()

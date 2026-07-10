@@ -57,10 +57,6 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define TRIG_Pin GPIO_PIN_0
-#define TRIG_GPIO_Port GPIOA
-#define ECHO_Pin GPIO_PIN_1
-#define ECHO_GPIO_Port GPIOA
 #define BAT_Pin GPIO_PIN_5
 #define BAT_GPIO_Port GPIOA
 #define MPU6050_SDA_Pin GPIO_PIN_10

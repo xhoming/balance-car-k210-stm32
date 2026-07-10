@@ -59,6 +59,31 @@ static void LimitMotionNoReverse(int *velocity_pwm, int *turn_pwm, int severity)
     *velocity_pwm = (left_motion + right_motion) / 2;
     *turn_pwm = (left_motion - right_motion) / 2;
 }
+static void LimitBallMotionNoReverse(int *velocity_pwm, int *turn_pwm)
+{
+    int turn;
+    int turn_abs;
+    int forward_pwm;
+
+    if (g_ball_debug_state != BALL_ACTION_AIM &&
+        g_ball_debug_state != BALL_ACTION_CREEP &&
+        g_ball_debug_state != BALL_ACTION_KICK) {
+        return;
+    }
+
+    turn = *turn_pwm;
+    turn_abs = Motion_AbsInt(turn);
+    forward_pwm = -*velocity_pwm;
+
+    if (turn_abs == 0) return;
+
+    if (forward_pwm < turn_abs) {
+        forward_pwm = turn_abs;
+        *velocity_pwm = -forward_pwm;
+    }
+
+    *turn_pwm = turn;
+}
 
 //中断回调函数 Interrupt callback function
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
@@ -123,8 +148,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 			}
 			else if (mode == KickBall_Mode)
 			{
-				LimitMotionNoReverse(&Velocity_Pwm, &Turn_Pwm,
-				                     (int)g_ball_input.error);
+				Velocity_Pwm = BallKick_FilterVelocityPwm(Velocity_Pwm);
+				LimitBallMotionNoReverse(&Velocity_Pwm, &Turn_Pwm);
 				Move_Z = Turn_Pwm;
 			}
 

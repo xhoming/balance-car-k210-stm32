@@ -164,7 +164,7 @@ void mul(int A_row, int A_col, int B_row, int B_col, float A[][A_col], float B[]
     }
     else
     {
-        printf("Error: Matrix has wrong dimensions!"); 
+        /* dimension error: no printf in firmware control path */
     }
 }
 

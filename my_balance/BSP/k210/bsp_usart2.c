@@ -11,6 +11,9 @@ void USART2_init(void)
 
 void USART2_RX_deal(uint8_t rx_data)
 {
-    Deal_K210_Vision(rx_data);
-    BallKick_ParseByte(rx_data);
+    if (mode == KickBall_Mode) {
+        BallKick_ParseByte(rx_data);
+    } else if (mode == ChaseLine_Mode) {
+        Deal_K210_Vision(rx_data);
+    }
 }

@@ -1,4 +1,4 @@
-/* USER CODE BEGIN Header */
+﻿/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : main.c
@@ -66,7 +66,6 @@ float Acceleration_Z;
 int Mid_Angle;
 float Move_X, Move_Z;
 u8 Stop_Flag = 1;
-enCarState g_newcarstate = enSTOP;
 
 char showbuf[32] = {'\0'};
 
@@ -102,13 +101,11 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_ADC1_Init();
-  MX_TIM2_Init();
   MX_TIM3_Init();
   MX_TIM4_Init();
   MX_TIM6_Init();
   MX_TIM8_Init();
   MX_UART5_Init();
-  MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   bsp_init();
