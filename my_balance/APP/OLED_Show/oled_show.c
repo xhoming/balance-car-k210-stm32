@@ -20,6 +20,9 @@ void show_mode_oled(void)
     case KickBall_Mode:
         OLED_Draw_Line("3.KickBall Mode", 1, true, true);
         break;
+    case Goalkeeper_Mode:
+        OLED_Draw_Line("4.Goalkeeper Mode", 1, true, true);
+        break;
     default:
         OLED_Draw_Line("Unknown Mode", 1, true, true);
         break;

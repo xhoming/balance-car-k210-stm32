@@ -41,13 +41,13 @@ void Mode_select_v2(void)
 {
     int16_t mode_cnt = 0;
 
-    mode = ChaseLine_Mode;
-    OLED_Draw_Line("2.ChaseLine Mode", 1, true, true);
+    mode = Goalkeeper_Mode;
+    OLED_Draw_Line("4.Goalkeeper Mode", 1, true, true);
 
     while (!Key1_State(1)) {
         mode_cnt += Read_Encoder(MOTOR_ID_ML);
         mode_cnt += -Read_Encoder(MOTOR_ID_MR);
-        car_mode_range(mode_cnt, Bluetooth_Mode, KickBall_Mode);
+        car_mode_range(mode_cnt, Bluetooth_Mode, Goalkeeper_Mode);
         show_mode_oled();
     }
     while (Key1_State(1));
@@ -60,6 +60,7 @@ void Mode_select_v2(void)
     Car_Diff_Turn_Reset();
     VisionTurn_Reset();
     BallKick_Reset();
+    Goalkeeper_Reset();
 }
 
 void ProcessCarProtocol(void)

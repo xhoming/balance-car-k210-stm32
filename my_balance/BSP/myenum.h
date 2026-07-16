@@ -50,6 +50,7 @@ typedef enum Car_mode_t {
     Bluetooth_Mode = 0,
     ChaseLine_Mode,
     KickBall_Mode,
+    Goalkeeper_Mode,
     Mode_Max
 } Car_Mode;
 

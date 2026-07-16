@@ -5,6 +5,7 @@
 
 int Balance_PD(float Angle,float Gyro);
 int Velocity_PI(int encoder_left,int encoder_right);
+void Velocity_PI_Reset(void);
 int Turn_PD(float gyro);
 int myabs(int a);
 

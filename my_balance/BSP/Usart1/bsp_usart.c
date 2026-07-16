@@ -32,3 +32,13 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         HAL_UART_Receive_IT(&huart5, &g_bluetooth_rx_byte, 1);
     }
 }
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART2 &&
+        huart->RxState == HAL_UART_STATE_READY) {
+        __HAL_UART_CLEAR_OREFLAG(huart);
+        huart->ErrorCode = HAL_UART_ERROR_NONE;
+        HAL_UART_Receive_IT(&huart2, &g_k210_rx_byte, 1);
+    }
+}

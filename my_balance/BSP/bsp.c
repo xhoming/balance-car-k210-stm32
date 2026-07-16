@@ -25,7 +25,8 @@ void bsp_mode_init(void)
 {
     if (mode == Bluetooth_Mode) {
         bluetooth_init();
-    } else if (mode == ChaseLine_Mode || mode == KickBall_Mode) {
+    } else if (mode == ChaseLine_Mode || mode == KickBall_Mode ||
+               mode == Goalkeeper_Mode) {
         bluetooth_init();
         USART2_init();
     }

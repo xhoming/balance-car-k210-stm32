@@ -73,10 +73,18 @@ Output  : Speed control PWM
 **************************************************************************/
 //修改前进后退速度，请修改Target_Velocity，比如，改成60
 // To change the forward and backward speed, please modify Target_Velocity, for example, change it to 60
+static float Velocity_Encoder_Bias = 0.0f;
+static float Velocity_Encoder_Integral = 0.0f;
+
+void Velocity_PI_Reset(void)
+{
+	Velocity_Encoder_Bias = 0.0f;
+	Velocity_Encoder_Integral = 0.0f;
+}
+
 int Velocity_PI(int encoder_left,int encoder_right)
 {
-    static float velocity,Encoder_Least,Encoder_bias,Movement;
-	  static float Encoder_Integral;
+    float velocity,Encoder_Least,Movement;
 	  //================遥控前进后退部分 Remote control forward and backward part====================//
 
 		Movement=Move_X;
@@ -84,15 +92,15 @@ int Velocity_PI(int encoder_left,int encoder_right)
 
    //================速度PI控制�?Speed ??PI controller=====================//
 		Encoder_Least =0-(encoder_left+encoder_right);                    //获取最新速度偏差=目标速度（此处为零）-测量速度（左右编码器之和�?//Obtain the latest speed deviation=target speed (here zero) - measured speed (sum of left and right encoders)
-		Encoder_bias *= 0.84;		                                          //一阶低通滤波器      //First order low-pass filter
-		Encoder_bias += Encoder_Least*0.16;	                              //一阶低通滤波器，减缓速度变化 //First order low-pass filter to slow down speed changes
-		Encoder_Integral +=Encoder_bias;                                  //积分出位�?积分时间�?ms //Integral offset time: 5ms
-		Encoder_Integral=Encoder_Integral+Movement;                       //接收遥控器数据，控制前进后退 //Receive remote control data and control forward and backward movement
-		if(Encoder_Integral>8000)  	Encoder_Integral=8000;             //积分限幅 //Integral limit
-		if(Encoder_Integral<-8000)	  Encoder_Integral=-8000;            //积分限幅	 //Integral limit
-		velocity=-Encoder_bias*Velocity_Kp/100-Encoder_Integral*Velocity_Ki/100;     //速度控制	//Speed control
+		Velocity_Encoder_Bias *= 0.84;		                                          //一阶低通滤波器      //First order low-pass filter
+		Velocity_Encoder_Bias += Encoder_Least*0.16;	                              //一阶低通滤波器，减缓速度变化 //First order low-pass filter to slow down speed changes
+		Velocity_Encoder_Integral +=Velocity_Encoder_Bias;                                  //积分出位�?积分时间�?ms //Integral offset time: 5ms
+		Velocity_Encoder_Integral=Velocity_Encoder_Integral+Movement;                       //接收遥控器数据，控制前进后退 //Receive remote control data and control forward and backward movement
+		if(Velocity_Encoder_Integral>8000)  	Velocity_Encoder_Integral=8000;             //积分限幅 //Integral limit
+		if(Velocity_Encoder_Integral<-8000)	  Velocity_Encoder_Integral=-8000;            //积分限幅	 //Integral limit
+		velocity=-Velocity_Encoder_Bias*Velocity_Kp/100-Velocity_Encoder_Integral*Velocity_Ki/100;     //速度控制	//Speed control
 
-		if(Turn_Off(Angle_Balance,battery)==1) Encoder_Integral=0;//电机关闭后清除积�?//Clear points after motor shutdown
+		if(Turn_Off(Angle_Balance,battery)==1) Velocity_PI_Reset();//电机关闭后清除积�?//Clear points after motor shutdown
 
 	  return velocity;
 }

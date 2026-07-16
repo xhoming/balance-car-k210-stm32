@@ -27,11 +27,12 @@ CMD_PERIOD_MS = 15
 STOP_CMD_PERIOD_MS = 100
 KEY_DEBOUNCE_MS = 250
 LCD_EVERY_N = 2
-SEND_REPEAT = 2
+SEND_REPEAT = 1
 KPU_REFRESH_FRAMES = 5
 
 FLAG_RUNNING = 0x01
 FLAG_VALID = 0x02
+CONTROL_CONFIDENCE_MIN = 40
 LABELS = ["ball"]
 
 ANCHORS = (
@@ -51,6 +52,9 @@ TRACK_ROI_PAD = 14
 TRACK_MAX_GROWTH = 180
 BALL_ASPECT_MIN = 75
 BALL_ASPECT_MAX = 133
+BALL_VALID_ASPECT_MIN = 65
+BALL_VALID_ASPECT_MAX = 150
+BALL_FILL_MIN = 25
 BLUE_SEED_RATIO = 45
 BLUE_A_MARGIN = 16
 BLUE_B_MARGIN = 20
@@ -112,7 +116,7 @@ class Stm32Link:
             from machine import UART
             fm.register(6, fm.fpioa.UART2_RX)
             fm.register(8, fm.fpioa.UART2_TX)
-            self.serial = UART(UART.UART2, 460800, 8, 0, 0,
+            self.serial = UART(UART.UART2, 115200, 8, 0, 0,
                                timeout=0, read_buf_len=128)
             self.mode = "uart2"
         except Exception:
@@ -179,6 +183,7 @@ class BlueBallTracker:
         self.threshold = None
         self.last = None
         self.kpu_roi = None
+        self.kpu_confidence = 0
         self.lost_frames = 0
 
     def active(self):
@@ -189,6 +194,7 @@ class BlueBallTracker:
         self.threshold = None
         self.last = None
         self.kpu_roi = None
+        self.kpu_confidence = 0
         self.lost_frames = 0
 
     def acquire(self, img, seed):
@@ -208,6 +214,7 @@ class BlueBallTracker:
                           clamp_lab(b_mean + BLUE_B_MARGIN, -128, 127))
         self.kpu_roi = clip_roi(seed["x"], seed["y"],
                                 seed["w"], seed["h"])
+        self.kpu_confidence = int(clamp(seed["score"] * 100, 0, 100))
         self.last = seed.copy()
         self.lost_frames = 0
         return self.update(img)
@@ -221,6 +228,7 @@ class BlueBallTracker:
         if intersect_roi(tracking_roi, new_roi) is None:
             self.last = seed.copy()
         self.kpu_roi = new_roi
+        self.kpu_confidence = int(clamp(seed["score"] * 100, 0, 100))
         self.lost_frames = 0
 
     def needs_kpu_refresh(self):
@@ -268,6 +276,17 @@ class BlueBallTracker:
             return None
 
         pixels = best.pixels()
+        box_area = best.w() * best.h()
+        aspect_x100 = best.w() * 100 // max(1, best.h())
+        fill_ratio = pixels * 100 // max(1, box_area)
+        if (aspect_x100 < BALL_VALID_ASPECT_MIN or
+                aspect_x100 > BALL_VALID_ASPECT_MAX or
+                fill_ratio < BALL_FILL_MIN):
+            self.lost_frames += 1
+            if self.lost_frames >= TRACK_LOST_FRAMES:
+                self.reset()
+            return None
+
         cx = best.cx()
         cy = best.cy()
         error_px = cx - IMG_CENTER_X
@@ -280,7 +299,11 @@ class BlueBallTracker:
             "cy": cy,
             "pixels": pixels,
             "area_x10": screen_area_x10(pixels),
-            "confidence": int(clamp(40 + pixels * 60 / 900, 40, 100)),
+            "confidence": int(clamp(
+                self.kpu_confidence * 60 / 100 +
+                fill_ratio * 25 / 100 +
+                min(pixels, 1200) * 15 / 1200, 0, 100)),
+            "fill": fill_ratio,
             "error_px": error_px,
             "error": int(clamp(error_px * 100 / IMG_CENTER_X * ERROR_GAIN,
                                 -100, 100)),
@@ -456,7 +479,8 @@ def main():
                 confidence = target["confidence"]
 
             flags = FLAG_RUNNING if running else 0
-            if target is not None:
+            if (target is not None and
+                    confidence >= CONTROL_CONFIDENCE_MIN):
                 flags |= FLAG_VALID
 
             if running and time.ticks_diff(now, last_send) >= CMD_PERIOD_MS:

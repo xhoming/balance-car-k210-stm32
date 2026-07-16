@@ -51,13 +51,32 @@ void app_user(void)
 		        (int)g_ball_debug_state,
 		        (int)g_ball_input.flags,
 		        (int)g_ball_input.error,
-		        (int)(g_ball_input.area_x10 / 10),
-		        (int)(g_ball_input.area_x10 % 10));
+		        (int)(g_ball_debug_area_x10 / 10),
+		        (int)(g_ball_debug_area_x10 % 10));
 		OLED_Draw_Line(showbuf, 2, false, false);
-		sprintf(showbuf,"V%d T%d R%02u",
-		        (int)g_ball_debug_v,
+		sprintf(showbuf,"V%d.%d T%d A%03u",
+		        (int)(g_ball_debug_v / 10),
+		        (int)(g_ball_debug_v % 10),
 		        (int)g_ball_debug_t,
 		        (unsigned int)g_ball_debug_missed);
+		OLED_Draw_Line(showbuf, 3, false, true);
+	}
+	else if(mode == Goalkeeper_Mode)
+	{
+		CarTelemSend();
+
+		/* Fixed-width fields erase stale OLED digits; H is input age in ms. */
+		sprintf(showbuf,"G%d L%+d S%03u P%+04d ",
+		        (int)g_goalkeeper_debug_state,
+		        (int)g_goalkeeper_debug_lane,
+		        (unsigned int)g_goalkeeper_debug_encoder_speed,
+		        (int)g_goalkeeper_debug_turn);
+		OLED_Draw_Line(showbuf, 2, false, false);
+		sprintf(showbuf,"F%d E%+04d A%03u V%03d",
+		        (int)g_goalkeeper_input.flags,
+		        (int)g_goalkeeper_input.error,
+		        (unsigned int)g_goalkeeper_input.area_x10,
+		        (int)g_goalkeeper_debug_speed_x10);
 		OLED_Draw_Line(showbuf, 3, false, true);
 	}
 }

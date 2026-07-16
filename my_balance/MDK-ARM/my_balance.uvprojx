@@ -671,6 +671,11 @@
               <FilePath>../APP/app_ball_kick.c</FilePath>
             </File>
             <File>
+              <FileName>app_goalkeeper.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../APP/app_goalkeeper.c</FilePath>
+            </File>
+            <File>
               <FileName>oled_show.c</FileName>
               <FileType>1</FileType>
               <FilePath>../APP/OLED_Show/oled_show.c</FilePath>

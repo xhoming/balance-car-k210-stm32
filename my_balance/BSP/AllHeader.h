@@ -46,6 +46,7 @@
 #include "app_user.h"
 #include "app_vision_turn.h"
 #include "app_ball_kick.h"
+#include "app_goalkeeper.h"
 
 #include "bsp_oled.h"
 #include "bsp_oled_i2c.h"
