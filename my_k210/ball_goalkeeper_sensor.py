@@ -45,7 +45,7 @@ YOLO_THRESHOLD = 0.20
 YOLO_NMS = 0.30
 
 # STM32使用同一门槛把画面分为左、中、右三个区域。
-LANE_ERROR_LIMIT = 15
+LANE_ERROR_LIMIT = 10
 
 # KPU acquisition followed by fast LAB tracking inside a predictive ROI.
 TRACK_LOST_FRAMES = 2
