@@ -31,8 +31,8 @@ CAMERA_HMIRROR = False
 CMD_PERIOD_MS = 15
 STOP_CMD_PERIOD_MS = 100
 KEY_DEBOUNCE_MS = 250
-LCD_EVERY_N = 10
-KPU_REFRESH_FRAMES = 6
+LCD_EVERY_N = 6
+KPU_REFRESH_FRAMES = 4
 
 ANCHORS = (
     1.00, 0.97,
@@ -45,7 +45,7 @@ YOLO_THRESHOLD = 0.20
 YOLO_NMS = 0.30
 
 # STM32使用同一门槛把画面分为左、中、右三个区域。
-LANE_ERROR_LIMIT = 10
+LANE_ERROR_LIMIT = 15
 
 # KPU acquisition followed by fast LAB tracking inside a predictive ROI.
 TRACK_LOST_FRAMES = 2
@@ -55,6 +55,10 @@ BALL_ASPECT_MIN = 65
 BALL_ASPECT_MAX = 150
 BALL_FILL_MIN = 25
 BLUE_SEED_RATIO = 45
+BLUE_SEED_A_MIN = -25
+BLUE_SEED_A_MAX = 25
+BLUE_SEED_B_MIN = -80
+BLUE_SEED_B_MAX = -12
 BLUE_A_MARGIN = 16
 BLUE_B_MARGIN = 20
 BLUE_PIXELS_MIN = 35
@@ -86,6 +90,21 @@ def clip_roi(x, y, w, h):
 def screen_area_x10(pixels):
     return int(clamp((pixels * 1000 + (IMG_W * IMG_H) // 2) /
                      (IMG_W * IMG_H), 0, 255))
+
+
+def seed_lab_means(img, seed):
+    seed_w = max(8, int(seed["w"] * BLUE_SEED_RATIO / 100))
+    seed_h = max(8, int(seed["h"] * BLUE_SEED_RATIO / 100))
+    stats = img.get_statistics(
+        roi=clip_roi(seed["cx"] - seed_w // 2,
+                     seed["cy"] - seed_h // 2,
+                     seed_w, seed_h))
+    return int(stats.a_mean()), int(stats.b_mean())
+
+
+def is_blue_seed(a_mean, b_mean):
+    return (BLUE_SEED_A_MIN <= a_mean <= BLUE_SEED_A_MAX and
+            BLUE_SEED_B_MIN <= b_mean <= BLUE_SEED_B_MAX)
 
 
 class KeyButton:
@@ -180,14 +199,10 @@ class BlueBallTracker:
         self.vy = 0
 
     def acquire(self, img, seed):
-        seed_w = max(8, int(seed["w"] * BLUE_SEED_RATIO / 100))
-        seed_h = max(8, int(seed["h"] * BLUE_SEED_RATIO / 100))
-        stats = img.get_statistics(
-            roi=clip_roi(seed["cx"] - seed_w // 2,
-                         seed["cy"] - seed_h // 2,
-                         seed_w, seed_h))
-        a_mean = int(stats.a_mean())
-        b_mean = int(stats.b_mean())
+        a_mean, b_mean = seed_lab_means(img, seed)
+        if not is_blue_seed(a_mean, b_mean):
+            self.reset()
+            return None
         self.threshold = (
             0, 100,
             int(clamp(a_mean - BLUE_A_MARGIN, -128, 127)),
@@ -202,10 +217,13 @@ class BlueBallTracker:
         self.vy = 0
         return self.update(img)
 
-    def refresh_from_kpu(self, seed):
+    def refresh_from_kpu(self, img, seed):
+        a_mean, b_mean = seed_lab_means(img, seed)
+        if not is_blue_seed(a_mean, b_mean):
+            return False
         self.kpu_confidence = int(clamp(seed["score"] * 100, 0, 100))
         if not self.active():
-            return
+            return False
         distance = abs(seed["cx"] - self.last["cx"]) + \
                    abs(seed["cy"] - self.last["cy"])
         max_distance = max(self.last["w"], self.last["h"]) * 2 + 24
@@ -213,6 +231,7 @@ class BlueBallTracker:
             self.last = seed.copy()
             self.vx = 0
             self.vy = 0
+        return True
 
     def update(self, img):
         if not self.active():
@@ -301,35 +320,20 @@ def detection_to_target(det):
     }
 
 
-def choose_target(detections):
+def choose_target(img, detections):
     if not detections:
         return None
     best = None
     best_score = -1.0
     for det in detections:
         target = detection_to_target(det)
+        a_mean, b_mean = seed_lab_means(img, target)
+        if not is_blue_seed(a_mean, b_mean):
+            continue
         if target["score"] > best_score:
             best_score = target["score"]
             best = target
     return best
-
-
-def kpu_fallback_target(seed):
-    """Use model position when blue segmentation misses a frame."""
-    error = int(clamp((seed["cx"] - IMG_CENTER_X) * 100 /
-                      IMG_CENTER_X, -100, 100))
-    # 模型框基本贴合圆球；用框面积的3/4近似圆形像素面积。
-    estimated_pixels = seed["w"] * seed["h"] * 3 // 4
-    return {
-        "x": seed["x"], "y": seed["y"],
-        "w": seed["w"], "h": seed["h"],
-        "cx": seed["cx"], "cy": seed["cy"],
-        "pixels": estimated_pixels,
-        "area_x10": screen_area_x10(estimated_pixels),
-        "error": error,
-        "confidence": int(clamp(seed["score"] * 100, 0, 100)),
-        "area_valid": False,
-    }
 
 
 def init_camera():
@@ -433,27 +437,21 @@ def main():
                     link.send(seq, 0, 0, 0, TTC_INVALID, 0)
 
             target = None
-            kpu_target = None
             tracked_this_frame = False
             refresh_kpu = (not tracker.active() or
                            frame_count % KPU_REFRESH_FRAMES == 0)
             if refresh_kpu:
                 kpu.run_with_output(img)
-                seed = choose_target(kpu.regionlayer_yolo2())
+                seed = choose_target(img, kpu.regionlayer_yolo2())
                 if seed is not None:
-                    kpu_target = kpu_fallback_target(seed)
                     if tracker.active():
-                        tracker.refresh_from_kpu(seed)
+                        tracker.refresh_from_kpu(img, seed)
                     else:
                         target = tracker.acquire(img, seed)
-                        if target is None:
-                            target = kpu_target
                         tracked_this_frame = True
 
             if tracker.active() and not tracked_this_frame:
                 target = tracker.update(img)
-                if target is None and kpu_target is not None:
-                    target = kpu_target
 
             control_valid = running and target is not None
             error = target["error"] if target is not None else 0
